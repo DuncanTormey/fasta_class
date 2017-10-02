@@ -1,4 +1,4 @@
-#!/home/dut/anaconda2/bin/python
+#!/usr/bin/env python
 from __future__ import print_function
 import numpy as np
 import re
@@ -80,7 +80,8 @@ def listMedian(list_of_lengths):
         b = list_of_lengths[(len(list_of_lengths) / 2) - 1]
         median = (a + b) / 2
     else:
-        median = list_of_lengths[(len(list_of_lengths) - 1) / 2]
+        i = int((len(list_of_lengths) - 1) / 2)
+        median = list_of_lengths[i]
     return median
 
 
