@@ -423,12 +423,12 @@ class Fasta_file(object):
         self.fasta_dict = dict(stripped_fasta_tuples)
         return self
 
-    def add_meta_header(self, meta_dict):
+    def add_meta_header(self, meta_dict, join=' '):
         self.strip_headers()
         temp = {}
         for key in self.fasta_dict:
             if key.strip(">") in meta_dict:
-                temp[key + " " + str(meta_dict[key.strip(">")])
+                temp[key + join + str(meta_dict[key.strip(">")])
                      ] = self.fasta_dict[key]
             else:
                 temp[key] = self.fasta_dict[key]
