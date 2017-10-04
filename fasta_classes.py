@@ -76,8 +76,8 @@ def listMedian(list_of_lengths):
     '''
     list_of_lengths = sorted(list_of_lengths)
     if len(list_of_lengths) % 2 == 0:
-        a = list_of_lengths[len(list_of_lengths) / 2]
-        b = list_of_lengths[(len(list_of_lengths) / 2) - 1]
+        a = list_of_lengths[int(len(list_of_lengths) / 2)]
+        b = list_of_lengths[int((len(list_of_lengths) / 2) - 1)]
         median = (a + b) / 2
     else:
         i = int((len(list_of_lengths) - 1) / 2)
