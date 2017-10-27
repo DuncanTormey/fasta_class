@@ -1,12 +1,14 @@
 #!/usr/bin/env python
 from __future__ import print_function
 import numpy as np
+import pandas as pd
 import re
 import argparse
 from collections import Counter
 from Bio import pairwise2
 from Bio.SubsMat import MatrixInfo as matlist
 from IPython.display import Markdown, display, HTML
+import primer3
 
 
 def write_two_line_fasta(file_name, a_fasta_tuples):
@@ -304,6 +306,55 @@ def display_pairwise_alignment(seq1, seq2, title='', matrix=matlist.blosum62, ga
     alignment = pairwise2.align.globalds(seq1, seq2, matrix, gap_open, gap_extend)[0]
     display_alignment(alignment, title, matrix)
 
+
+def design_primers(fasta_tuple, fragment_size, exlude_seqs):
+    seq_dict = {
+        'SEQUENCE_ID': fasta_tuple[0],
+        'SEQUENCE_TEMPLATE': fasta_tuple[1],
+        'SEQUENCE_INCLUDED_REGION': [0, len(fasta_tuple[1])]
+    }
+    design_parameters = {
+        'PRIMER_OPT_SIZE': 21,
+        'PRIMER_PICK_INTERNAL_OLIGO': 0,
+        'PRIMER_MIN_SIZE': 20,
+        'PRIMER_MAX_SIZE': 25,
+        'PRIMER_NUM_RETURN':3,
+        'PRIMER_PRODUCT_SIZE_RANGE': fragment_size,
+        'PRIMER_INTERNAL_MISHYB_LIBRARY':exlude_seqs,
+    }
+    results = primer3.bindings.designPrimers(seq_dict, design_parameters)
+    last = 0
+    data = {}
+    data_list = []
+    exclude = ["EXPLAIN", "RETURNED", 'COMPL_ANY_TH', 'SELF_END_TH',
+               'HAIRPIN_TH', 'END_STABILITY', '_PENALTY', '_SELF_ANY_TH',
+               '_COMPL_END_TH']
+
+    for entry in results.items():
+        if not any(s in entry[0] for s in exclude):
+            number = int(entry[0].split('_')[2])
+            key = entry[0].replace('_%d' % number, '_').replace('__', '_')
+            if number != last:
+                data_list.append(data)
+                data = {}
+                last = number
+            data['PRIMER_SET'] = number
+            data[key] = entry[1]
+
+    data_list.append(data)
+
+    primer_df = pd.DataFrame(data_list)
+    primer_df = primer_df.rename(columns={'PRIMER_RIGHT_':'PRIMER_RIGHT_COORD','PRIMER_LEFT_':'PRIMER_LEFT_COORD'})
+    primer_df['SEQ_NAME'] = fasta_tuple[0].replace('>', '')
+    columns = ['SEQ_NAME', 'PRIMER_SET', 'PRIMER_LEFT_SEQUENCE', 'PRIMER_RIGHT_SEQUENCE',
+               'PRIMER_PAIR_PRODUCT_SIZE', 'PRIMER_LEFT_COORD', 'PRIMER_RIGHT_COORD',
+               'PRIMER_LEFT_GC_PERCENT', 'PRIMER_RIGHT_GC_PERCENT',
+               'PRIMER_LEFT_TM', 'PRIMER_RIGHT_TM']
+
+
+    primer_df = primer_df[columns]
+
+    return primer_df
 
 ###############################################################################
 ############################     Fasta Class    ###############################
