@@ -232,6 +232,8 @@ def baseComposition(seq):
         composition[x] = composition[x] / float(total) * 100
     return composition
 
+def count_cpg(sequence):
+    return sequence.count('CG')
 
 def ret_gc_content(seq, missing_cutoff=1.0):
     missing_cutoff = missing_cutoff * 100
@@ -239,7 +241,7 @@ def ret_gc_content(seq, missing_cutoff=1.0):
     if composition['N'] >= missing_cutoff:
         gc = np.nan
     else:
-        gc = composition['G'] + composition['C']
+        gc = (composition['G'] + composition['C']) / (composition['G'] + composition['C'] + composition['A'] + composition['T']) * 100
     return gc
 
 
@@ -275,12 +277,13 @@ def convert_string_html(string):
 def display_html_alignment(alignment, title='', matrix=matlist.blosum62):
     html_alignment = '<span ><tt><b>%s</b></tt></span><br />' % title
     all_strings = []
-    for i in range(0, len(alignment[0]), 80):
-        string1 = convert_string_html(alignment[0][i:i + 80])
+    wrap_length=100
+    for i in range(0, len(alignment[0]), wrap_length):
+        string1 = convert_string_html(alignment[0][i:i + wrap_length])
         similarity = ''
-        for k in range(len(alignment[0][i:i + 80])):
-            aa1 = alignment[0][i:i + 80][k]
-            aa2 = alignment[1][i:i + 80][k]
+        for k in range(len(alignment[0][i:i + wrap_length])):
+            aa1 = alignment[0][i:i + wrap_length][k]
+            aa2 = alignment[1][i:i + wrap_length][k]
             if aa1 == aa2:
                 similarity += '<span style="background-color: #2ca25f" ><tt>%s</tt></span>' % "*"
             elif aa1 != "-" and aa2 != "-":
@@ -304,7 +307,7 @@ def display_html_alignment(alignment, title='', matrix=matlist.blosum62):
 
 def display_pairwise_alignment(seq1, seq2, title='', matrix=matlist.blosum62, gap_open=-10, gap_extend=-0.5):
     alignment = pairwise2.align.globalds(seq1, seq2, matrix, gap_open, gap_extend)[0]
-    display_alignment(alignment, title, matrix)
+    display_html_alignment(alignment, title, matrix)
 
 
 def design_primers(fasta_tuple, fragment_size, exlude_seqs):
@@ -396,6 +399,19 @@ class Fasta_file(object):
         self.fasta_tuples = [(x[0], x[1].upper()) for x in self.fasta_tuples]
         self.fasta_dict = dict(self.fasta_tuples)
 
+    def write_simple_name_fasta(self):
+        if ".fasta" in self.path:
+            out_fasta = self.path.replace('.fasta', '.simple_name.fasta')
+        elif ".fa" in self.path:
+            out_fasta = self.path.replace('.fa' , '.simple_name.fa')
+
+        name_map = '.'.join(self.path.split('.')[:-1])  +  '.name_map.tsv'
+
+        with open(out_fasta, "w") as fw, open(name_map, "w") as fw2:
+            for i, fasta_tuple in enumerate(self.fasta_tuples):
+                fw.write(">{}\n{}\n".format(i, fasta_tuple[1]))
+                fw2.write(">{}\t{}\n".format(i, fasta_tuple[0]))
+
     def sort_fasta_tuples(self):
         self.fasta_tuples = sorted(self.fasta_tuples,
                                    key=lambda x: len(x[1]),
@@ -443,6 +459,37 @@ class Fasta_file(object):
         subsetted_fasta = dict(self.subset_fasta_tuples(id_list))
         return subsetted_fasta
 
+    def ret_top_x_longest_seq_tups(self, x=23, chrom_names=False, chrom_name_pre=''):
+        top_x = []
+        self.sort_fasta_tuples()
+        for i in range(x):
+            if chrom_names:
+                key = '>{}chromosome_{}'.format(chrom_name_pre, i + 1)
+                top_x.append(
+                    (key, self.fasta_tuples[i][1])
+                )
+                print('Selecting Sequence {}. Renaming to {}. Sequence Length is {:,} BP '.format(
+                    self.fasta_tuples[i][0],
+                    key,
+                    len(self.fasta_tuples[i][1])
+                )
+                      )
+            else:
+                top_x.append(
+                    (self.fasta_tuples[i][0],self.fasta_tuples[i][1])
+                )
+                print('Selecting Sequence {}. Sequence Length is {:,} BP '.format(
+                    self.fasta_tuples[i][0],
+                    len(self.fasta_tuples[i][1])
+                )
+                      )
+        return top_x
+
+    def write_top_longest_seq(self, filename, x=23, chrom_names=False, chrom_name_pre=''):
+        top_x = self.ret_top_x_longest_seq_tups(x=x, chrom_names=chrom_names, chrom_name_pre=chrom_name_pre)
+        write_two_line_fasta(file_name=filename, a_fasta_tuples=top_x)
+
+
     def regex_subset_fasta_dict(self, regex):
         subsetted_fasta = {key: val for key, val in self.fasta_dict.items() if re.search(regex, key, re.IGNORECASE)}
         return subsetted_fasta
@@ -487,8 +534,16 @@ class Fasta_file(object):
         self.fasta_dict = temp
         self.fasta_tuples = temp.items()
 
-    def make_length_list(self):
-        self.length_list = sorted([len(x[1]) for x in self.fasta_tuples])
+    def ret_length_df(self):
+        self.length_df = pd.DataFrame(
+            [{'scaffold':x[0].replace('>', ""), 'length':(len(x[1]))} for x in self.fasta_tuples]
+                                      ).sort_values('length', ascending=False).reset_index(drop=True)[['scaffold', 'length']]
+        return self.length_df
+
+    def ret_length_list(self):
+        self.ret_length_df()
+        self.length_list = self.length_df['length'].tolist()
+        return self.length_list
 
     def make_genome_string(self):
         self.genome_string = "".join(self.fasta_dict.values())
@@ -498,7 +553,7 @@ class Fasta_file(object):
         self.bc = baseComposition(self.genome_string)
 
     def get_stats(self):
-        self.make_length_list()
+        self.ret_length_list()
         self.stats = {"max_scaffold": max(self.length_list),
                       "min_scaffold": min(self.length_list),
                       "mean_scaffold": np.mean(self.length_list),
@@ -588,7 +643,7 @@ class Fasta_file(object):
             window_data = [i + window_size, len(self.genome_string), gc]
             self.sliding_window_data_gc_data.append(window_data)
 
-    def get_sliding_scaffold_window_gc_data(self, window_size=10000, missing_cutoff=0.20):
+    def get_sliding_scaffold_window_gc_data(self, window_size=10000, missing_cutoff=0.50):
         self.sliding_scaffold_window_data_gc_data = []
         for header in self.fasta_dict:
             if len(self.fasta_dict[header]) < window_size + 1:
@@ -606,6 +661,28 @@ class Fasta_file(object):
                 window_data = [header, i + window_size,
                                len(self.fasta_dict[header]), gc]
                 self.sliding_scaffold_window_data_gc_data.append(window_data)
+        return self.sliding_scaffold_window_data_gc_data
+
+    def get_sliding_scaffold_window_cpg_data(self, window_size=1000):
+        self.sliding_scaffold_window_data_cpg_data = []
+        for header in self.fasta_dict:
+            if len(self.fasta_dict[header]) < window_size + 1:
+                continue
+
+            for i in np.arange(0, len(self.fasta_dict[header]) - window_size, window_size):
+                window = self.fasta_dict[header][i:i + window_size]
+                cpg = count_cpg(window)
+                window_data = [header, i, i + window_size, cpg]
+                self.sliding_scaffold_window_data_cpg_data.append(window_data)
+
+            last_window = self.fasta_dict[header][i + window_size:]
+            if len(last_window) >= window_size * 0.7:
+                cpg = count_cpg(window)
+                window_data = [header, i + window_size,
+                               len(self.fasta_dict[header]), cpg]
+                self.sliding_scaffold_window_data_cpg_data.append(window_data)
+
+        return self.sliding_scaffold_window_data_cpg_data
 
     def write_sliding_gc_data(self, window_size=10000):
         filename = self.path.replace(
@@ -646,7 +723,8 @@ def run(args):
         fasta.write_stats()
     if args.gc_windows:
         fasta.write_sliding_gc_data()
-
+    if args.simple_name:
+        fasta.write_simple_name_fasta()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -659,6 +737,9 @@ if __name__ == "__main__":
 
     parser.add_argument('-unmask', action='store_true', dest='unmask', default=False,
                         help='convert all lowercase letters to uppercase')
+
+    parser.add_argument('-write_simple_name', action='store_true', dest='simple_name', default=False,
+                        help='writes fasta file with headers to incremental integers, also rights name map file')
 
     parser.add_argument('-write_fasta', action='store', dest='write', default=False,
                         help='write an fasta file with applied filters')
